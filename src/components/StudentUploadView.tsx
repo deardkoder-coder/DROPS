@@ -100,14 +100,17 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
     );
   };
 
-  const getUploadUrl = () => {
-    if (apiBaseUrl) {
-      return `${apiBaseUrl}/api/upload`;
-    }
-    if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
-      return 'https://ais-pre-aenjyhkv3ljqkrlarib5yu-424311887351.europe-west3.run.app/api/upload';
-    }
-    return '/api/upload';
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        const res = reader.result as string;
+        const base64 = res.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = (err) => reject(err);
+    });
   };
 
   const handleSubmit = async () => {
@@ -123,15 +126,78 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
 
     setErrorMessage(null);
     setIsUploading(true);
-    setUploadProgress(10);
+    setUploadProgress(15);
 
+    const gasUrl = localStorage.getItem('gas_upload_url');
+    const isGitHubPages =
+      typeof window !== 'undefined' && window.location.hostname.endsWith('github.io');
+
+    // Method 1: Google Apps Script Web App (preferred for GitHub Pages)
+    if (gasUrl) {
+      try {
+        setUploadProgress(30);
+        const base64 = await fileToBase64(selectedFile);
+        setUploadProgress(60);
+
+        const response = await fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            password: password.trim(),
+            fileName: selectedFile.name,
+            mimeType: selectedFile.type,
+            fileBase64: base64,
+            comment: comment.trim(),
+          }),
+        });
+
+        setUploadProgress(95);
+        const text = await response.text();
+        let data: any = {};
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { success: true };
+        }
+
+        if (data.error) {
+          setErrorMessage(data.error);
+          setIsUploading(false);
+          return;
+        }
+
+        setLastUploadedName(selectedFile.name);
+        setIsSuccess(true);
+        setIsUploading(false);
+        triggerConfetti();
+        return;
+      } catch (gasErr: any) {
+        console.error('GAS upload error:', gasErr);
+        setIsUploading(false);
+        setErrorMessage(
+          'Ошибка при отправке в Google Диск через Google Apps Script: ' + gasErr.message
+        );
+        return;
+      }
+    }
+
+    // Method 2: If on GitHub Pages and no GAS URL configured yet:
+    if (isGitHubPages) {
+      setIsUploading(false);
+      setErrorMessage(
+        'GitHub Pages — статический сайт. Для прямой отправки на ваш Google Диск подключите скрипт во вкладке «Загруженные» (это займет 1 минуту).'
+      );
+      return;
+    }
+
+    // Method 3: Standard server upload for local and full-stack environments
     const formData = new FormData();
     formData.append('password', password.trim());
     formData.append('comment', comment.trim());
     formData.append('file', selectedFile);
 
     try {
-      const uploadUrl = getUploadUrl();
+      const uploadUrl = apiBaseUrl ? `${apiBaseUrl}/api/upload` : '/api/upload';
       const xhr = new XMLHttpRequest();
       xhr.open('POST', uploadUrl);
 
@@ -204,7 +270,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
         className="hidden"
       />
 
-      {/* Main Card - Exact style from user photo */}
+      {/* Main Card */}
       <div className="bg-white rounded-3xl p-6 sm:p-10 shadow-lg shadow-slate-200/50 border border-slate-100 transition-all">
         {isSuccess ? (
           /* SUCCESS STATE */
@@ -217,7 +283,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
               Презентация успешно отправлена!
             </h3>
             <p className="text-slate-600 text-sm max-w-md mx-auto mb-6">
-              Файл сохранён в базе данных и готов к просмотру и скачиванию.
+              Файл получен и сохранён для проверки.
             </p>
 
             <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-200/70 text-left max-w-md mx-auto flex items-center gap-3">
@@ -226,7 +292,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
                 <p className="text-xs font-semibold text-slate-900 truncate">
                   {lastUploadedName}
                 </p>
-                <p className="text-[11px] text-emerald-600 font-medium">✓ Сохранено в базе данных</p>
+                <p className="text-[11px] text-emerald-600 font-medium">✓ Успешно сохранено</p>
               </div>
             </div>
 
@@ -244,7 +310,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm transition"
                 >
                   <FolderOpen className="w-4 h-4 text-blue-600" />
-                  <span>Посмотреть загруженные файлы</span>
+                  <span>Посмотреть архив файлов</span>
                 </button>
               )}
             </div>
@@ -384,7 +450,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
                 <div className="flex items-center justify-between text-xs font-medium text-slate-700">
                   <span className="flex items-center gap-1.5">
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                    Сохранение файла...
+                    Отправка презентации...
                   </span>
                   <span>{uploadProgress}%</span>
                 </div>

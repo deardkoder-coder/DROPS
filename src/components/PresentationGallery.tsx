@@ -11,8 +11,13 @@ import {
   ArrowLeft,
   AlertCircle,
   Loader2,
-  Check,
   FolderOpen,
+  Settings,
+  Copy,
+  Check,
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
@@ -32,6 +37,36 @@ interface PresentationGalleryProps {
   apiBaseUrl?: string;
 }
 
+const GAS_SCRIPT_CODE = `function doPost(e) {
+  try {
+    var body = e.postData.contents;
+    var data = JSON.parse(body);
+    if (data.password !== "1011") {
+      return ContentService.createTextOutput(JSON.stringify({ error: "Неверный пароль доступа" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    var folderName = "Презентации";
+    var folders = DriveApp.getFoldersByName(folderName);
+    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+
+    var decoded = Utilities.base64Decode(data.fileBase64);
+    var blob = Utilities.newBlob(decoded, data.mimeType || "application/octet-stream", data.fileName);
+    var file = folder.createFile(blob);
+    if (data.comment) {
+      file.setDescription("Подпись: " + data.comment);
+    }
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true,
+      id: file.getId(),
+      name: file.getName(),
+      url: file.getUrl()
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+
 export const PresentationGallery: React.FC<PresentationGalleryProps> = ({
   onGoToUpload,
   apiBaseUrl = '',
@@ -48,6 +83,17 @@ export const PresentationGallery: React.FC<PresentationGalleryProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [itemToDelete, setItemToDelete] = useState<StoredPresentation | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // Google Apps Script integration state for GitHub Pages
+  const [gasUrl, setGasUrl] = useState<string>(() => {
+    return localStorage.getItem('gas_upload_url') || '';
+  });
+  const [isGasSettingsOpen, setIsGasSettingsOpen] = useState<boolean>(false);
+  const [copiedScript, setCopiedScript] = useState<boolean>(false);
+  const [gasInput, setGasInput] = useState<string>(() => {
+    return localStorage.getItem('gas_upload_url') || '';
+  });
+  const [gasSaved, setGasSaved] = useState<boolean>(false);
 
   const fetchPresentations = useCallback(
     async (passToUse: string) => {
@@ -69,7 +115,12 @@ export const PresentationGallery: React.FC<PresentationGalleryProps> = ({
         }
       } catch (err: any) {
         console.error('Fetch error:', err);
-        setAuthError('Сетевая ошибка при получении списка презентаций');
+        // If fetch fails (e.g. static site), allow auth if password is 1011
+        if (passToUse === '1011') {
+          setIsAuthenticated(true);
+        } else {
+          setAuthError('Сетевая ошибка при получении списка презентаций');
+        }
       } finally {
         setIsLoading(false);
       }
@@ -110,6 +161,24 @@ export const PresentationGallery: React.FC<PresentationGalleryProps> = ({
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const handleSaveGasUrl = () => {
+    const trimmed = gasInput.trim();
+    setGasUrl(trimmed);
+    if (trimmed) {
+      localStorage.setItem('gas_upload_url', trimmed);
+    } else {
+      localStorage.removeItem('gas_upload_url');
+    }
+    setGasSaved(true);
+    setTimeout(() => setGasSaved(false), 2500);
+  };
+
+  const copyScriptCode = () => {
+    navigator.clipboard.writeText(GAS_SCRIPT_CODE);
+    setCopiedScript(true);
+    setTimeout(() => setCopiedScript(false), 2500);
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -160,7 +229,7 @@ export const PresentationGallery: React.FC<PresentationGalleryProps> = ({
 
   const totalBytes = presentations.reduce((acc, p) => acc + (p.fileSize || 0), 0);
 
-  // If not authenticated, show password prompt
+  // Password prompt
   if (!isAuthenticated) {
     return (
       <div className="w-full max-w-md mx-auto py-12 animate-fade-in">
@@ -259,6 +328,14 @@ export const PresentationGallery: React.FC<PresentationGalleryProps> = ({
           )}
 
           <button
+            onClick={() => setIsGasSettingsOpen(!isGasSettingsOpen)}
+            className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition"
+            title="Настройка для GitHub Pages"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+
+          <button
             onClick={() => fetchPresentations(password)}
             disabled={isLoading}
             className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition"
@@ -268,6 +345,96 @@ export const PresentationGallery: React.FC<PresentationGalleryProps> = ({
           </button>
         </div>
       </div>
+
+      {/* GitHub Pages Google Drive Helper Card (collapsible) */}
+      {isGasSettingsOpen && (
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50/70 border border-blue-200 rounded-3xl p-6 text-xs text-slate-700 space-y-4 animate-fade-in shadow-xs">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                <span>Прямая отправка в Google Диск с GitHub Pages</span>
+              </h3>
+              <p className="text-slate-600 mt-1">
+                Если вы хотите раздавать ученикам ссылку с GitHub Pages, файлы могут падать прямо на
+                ваш Google Диск через Google Apps Script без собственного сервера.
+              </p>
+            </div>
+            <button
+              onClick={() => setIsGasSettingsOpen(false)}
+              className="text-slate-400 hover:text-slate-600 p-1"
+            >
+              <ChevronUp className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="space-y-3 bg-white/80 p-4 rounded-2xl border border-blue-100">
+            <p className="font-semibold text-slate-800">
+              Шаг 1. Откройте{' '}
+              <a
+                href="https://script.google.com/home"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 underline inline-flex items-center gap-0.5"
+              >
+                <span>script.google.com</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>{' '}
+              и создайте новый проект:
+            </p>
+
+            <button
+              type="button"
+              onClick={copyScriptCode}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition"
+            >
+              {copiedScript ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Код скрипта скопирован!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Скопировать готовый код скрипта</span>
+                </>
+              )}
+            </button>
+
+            <p className="font-semibold text-slate-800 mt-2">
+              Шаг 2. Нажмите <strong>«Развернуть»</strong> → <strong>«Новое развертывание»</strong>{' '}
+              → выберите тип <strong>«Веб-приложение»</strong> (выполнять от: <em>«Меня»</em>,
+              доступ: <em>«Все»</em>).
+            </p>
+
+            <p className="font-semibold text-slate-800 mt-2">
+              Шаг 3. Вставьте полученную ссылку веб-приложения:
+            </p>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={gasInput}
+                onChange={(e) => setGasInput(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:outline-none focus:border-blue-500"
+              />
+              <button
+                type="button"
+                onClick={handleSaveGasUrl}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition"
+              >
+                {gasSaved ? 'Сохранено!' : 'Сохранить'}
+              </button>
+            </div>
+            {gasUrl && (
+              <p className="text-[11px] text-emerald-700">
+                ✓ Скрипт подключён! Презентации с GitHub Pages будут сохраняться в ваш Google Диск в
+                папку «Презентации».
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Search Input */}
       <div className="relative">
