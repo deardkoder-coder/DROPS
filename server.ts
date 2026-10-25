@@ -173,18 +173,17 @@ app.post('/api/student/upload', upload.single('file'), async (req: Request, res:
       return;
     }
 
-    const studentName = (req.body.studentName || '').trim();
-    const studentClass = (req.body.studentClass || '').trim();
-    const comment = (req.body.comment || '').trim();
-
-    if (!studentName) {
-      // Clean up uploaded file
+    const password = (req.body.password || '').trim();
+    if (password !== '1011') {
       try {
-        fs.unlinkSync(req.file.path);
+        if (req.file) fs.unlinkSync(req.file.path);
       } catch {}
-      res.status(400).json({ error: 'Пожалуйста, укажите имя или фамилию' });
+      res.status(403).json({ error: 'Неверный пароль. Введите пароль: 1011' });
       return;
     }
+
+    const studentName = (req.body.studentName || '').trim();
+    const comment = (req.body.comment || '').trim();
 
     const subId = Math.random().toString(36).substring(2, 10);
     const uploadedAt = new Date().toISOString();
@@ -195,8 +194,8 @@ app.post('/api/student/upload', upload.single('file'), async (req: Request, res:
       savedFileName: req.file.filename,
       fileSize: req.file.size,
       mimeType: req.file.mimetype,
-      studentName,
-      studentClass,
+      studentName: studentName || 'Без подписи',
+      studentClass: '',
       comment,
       uploadedAt,
       driveStatus: 'pending',
@@ -206,11 +205,9 @@ app.post('/api/student/upload', upload.single('file'), async (req: Request, res:
     const teacherConfig = getTeacherConfig();
     if (teacherConfig && teacherConfig.accessToken && teacherConfig.folderId) {
       try {
-        const prefix = studentClass ? `[${studentClass}] ` : '';
-        const driveFileName = `${prefix}${studentName} - ${req.file.originalname}`;
+        const driveFileName = req.file.originalname;
         const descriptionLines = [
-          `Ученик: ${studentName}`,
-          studentClass ? `Класс: ${studentClass}` : null,
+          studentName ? `Подпись: ${studentName}` : null,
           comment ? `Комментарий: ${comment}` : null,
           `Дата отправки: ${new Date().toLocaleString('ru-RU')}`,
           `Размер: ${(req.file.size / (1024 * 1024)).toFixed(2)} МБ`,

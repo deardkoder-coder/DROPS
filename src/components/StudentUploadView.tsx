@@ -6,10 +6,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  User,
-  GraduationCap,
-  MessageSquare,
-  Sparkles,
+  Lock,
+  ExternalLink,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -18,8 +16,7 @@ interface StudentUploadViewProps {
 }
 
 export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
-  const [studentName, setStudentName] = useState('');
-  const [studentClass, setStudentClass] = useState('');
+  const [password, setPassword] = useState('');
   const [comment, setComment] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -28,6 +25,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
   const [lastUploadedName, setLastUploadedName] = useState('');
+  const [driveViewLink, setDriveViewLink] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -50,7 +48,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
 
     if (!isValid) {
       setErrorMessage(
-        'Пожалуйста, выберите презентацию (.pptx, .ppt, .pdf, .key, .odp).'
+        'Пожалуйста, выберите файл презентации (.pptx, .ppt, .pdf, .key, .odp).'
       );
       return;
     }
@@ -97,10 +95,12 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
   };
 
   const handleSubmit = async () => {
-    if (!studentName.trim()) {
-      setErrorMessage('Пожалуйста, укажите ваши фамилию и имя');
+    // Check password
+    if (password.trim() !== '1011') {
+      setErrorMessage('Неверный пароль. Для отправки введите пароль: 1011');
       return;
     }
+
     if (!selectedFile) {
       setErrorMessage('Пожалуйста, выберите файл презентации для загрузки');
       return;
@@ -111,8 +111,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
     setUploadProgress(10);
 
     const formData = new FormData();
-    formData.append('studentName', studentName.trim());
-    formData.append('studentClass', studentClass.trim());
+    formData.append('password', password.trim());
     formData.append('comment', comment.trim());
     formData.append('file', selectedFile);
 
@@ -134,6 +133,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
             const data = JSON.parse(xhr.responseText);
             if (data.success) {
               setLastUploadedName(selectedFile.name);
+              setDriveViewLink(data.submission?.driveViewLink || null);
               setIsSuccess(true);
               triggerConfetti();
             } else {
@@ -142,10 +142,8 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
           } catch {
             setIsSuccess(true);
           }
-        } else if (xhr.status === 404) {
-          setErrorMessage(
-            'Бэкенд-сервер недоступен (GitHub Pages поддерживает только статические файлы). Для работы приёма презентаций без регистрации запустите сервис с сервером Node.js или используйте облачный хостинг.'
-          );
+        } else if (xhr.status === 403) {
+          setErrorMessage('Неверный пароль доступа. Введите пароль: 1011');
         } else {
           try {
             const err = JSON.parse(xhr.responseText);
@@ -173,6 +171,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
     setIsSuccess(false);
     setUploadProgress(0);
     setErrorMessage(null);
+    setDriveViewLink(null);
   };
 
   return (
@@ -191,7 +190,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
         className="hidden"
       />
 
-      {/* Main Card */}
+      {/* Main Card - Exact style from user photo */}
       <div className="bg-white rounded-3xl p-6 sm:p-10 shadow-lg shadow-slate-200/50 border border-slate-100 transition-all">
         {isSuccess ? (
           /* SUCCESS STATE */
@@ -204,19 +203,31 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
               Презентация успешно отправлена!
             </h3>
             <p className="text-slate-600 text-sm max-w-md mx-auto mb-6">
-              Спасибо, <strong className="text-slate-800">{studentName}</strong>
-              {studentClass ? ` (${studentClass})` : ''}! Ваша презентация сохранена и передана
-              учителю на проверку.
+              Файл сохранён и загружается на Google Диск в папку «Презентации».
             </p>
 
-            <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-200/70 text-left max-w-md mx-auto flex items-center gap-3">
-              <FileText className="w-6 h-6 text-blue-600 shrink-0" />
-              <div className="truncate">
-                <p className="text-xs font-semibold text-slate-900 truncate">
-                  {lastUploadedName}
-                </p>
-                <p className="text-[11px] text-emerald-600 font-medium">✓ Передано учителю</p>
+            <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-200/70 text-left max-w-md mx-auto flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <FileText className="w-6 h-6 text-blue-600 shrink-0" />
+                <div className="truncate">
+                  <p className="text-xs font-semibold text-slate-900 truncate">
+                    {lastUploadedName}
+                  </p>
+                  <p className="text-[11px] text-emerald-600 font-medium">✓ Отправлено на Google Диск</p>
+                </div>
               </div>
+
+              {driveViewLink && (
+                <a
+                  href={driveViewLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline shrink-0 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200"
+                >
+                  <span>Открыть</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
             </div>
 
             <button
@@ -234,40 +245,24 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
               <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
                 Отправьте презентацию
               </h1>
-              <p className="text-xs text-slate-500 mt-1">
-                Файл автоматически сохранится в папке учителя на Google Диске
-              </p>
             </div>
 
-            {/* Student info fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-900 mb-1.5 flex items-center gap-1">
-                  <User className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Фамилия и Имя <span className="text-red-500">*</span></span>
-                </label>
-                <input
-                  type="text"
-                  value={studentName}
-                  onChange={(e) => setStudentName(e.target.value)}
-                  placeholder="Например: Иванов Иван"
-                  className="w-full text-sm px-3.5 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white transition"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-900 mb-1.5 flex items-center gap-1">
-                  <GraduationCap className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Класс / Группа:</span>
-                </label>
-                <input
-                  type="text"
-                  value={studentClass}
-                  onChange={(e) => setStudentClass(e.target.value)}
-                  placeholder="10А"
-                  className="w-full text-sm px-3.5 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white transition"
-                />
-              </div>
+            {/* Password Field */}
+            <div className="mb-5">
+              <label className="block text-xs font-semibold text-slate-900 mb-1.5 flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5 text-blue-600" />
+                <span>Пароль доступа <span className="text-red-500">*</span></span>
+              </label>
+              <input
+                type="text"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                placeholder="Введите пароль (1011)"
+                className="w-full text-sm px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white transition"
+              />
             </div>
 
             {/* File Label */}
@@ -333,18 +328,17 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
               </div>
             )}
 
-            {/* Optional Comment */}
+            {/* Optional Comment / Signature */}
             <div className="mt-4">
-              <label className="block text-xs font-medium text-slate-600 mb-1 flex items-center gap-1">
-                <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
-                <span>Тема презентации или комментарий (необязательно):</span>
+              <label className="block text-xs font-medium text-slate-500 mb-1">
+                Подпись или комментарий (необязательно):
               </label>
               <input
                 type="text"
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="Например: Проект по истории, 2 вариант"
-                className="w-full text-xs px-3.5 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white transition"
+                placeholder="Например: Иванов Иван, 10А"
+                className="w-full text-xs px-3.5 py-2.5 bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white transition"
               />
             </div>
 
@@ -368,7 +362,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
                 <div className="flex items-center justify-between text-xs font-medium text-slate-700">
                   <span className="flex items-center gap-1.5">
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                    Отправка презентации учителю...
+                    Загрузка на Google Диск...
                   </span>
                   <span>{uploadProgress}%</span>
                 </div>
@@ -386,9 +380,9 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={isUploading || !selectedFile}
+                disabled={isUploading || !selectedFile || password.trim() !== '1011'}
                 className={`inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl font-medium text-sm text-white transition-all shadow-sm ${
-                  isUploading || !selectedFile
+                  isUploading || !selectedFile || password.trim() !== '1011'
                     ? 'bg-blue-400 cursor-not-allowed opacity-80'
                     : 'bg-[#0070f3] hover:bg-blue-600 active:scale-[0.98]'
                 }`}
