@@ -1,0 +1,6 @@
+{
+  "name": "Presentation Drop - Google Drive Uploader",
+  "description": "Сервис для быстрой и удобной загрузки презентаций напрямую в отдельную папку на вашем Google Диске.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
