@@ -8,15 +8,26 @@ import {
   Loader2,
   Lock,
   ExternalLink,
+  Eye,
+  EyeOff,
+  Folder,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { DriveFolder, DriveFile, uploadPresentation } from '../services/drive';
 
 interface StudentUploadViewProps {
-  onSuccess?: () => void;
+  accessToken: string | null;
+  targetFolder: DriveFolder | null;
+  onRequestDriveAuth?: () => Promise<string | null>;
 }
 
-export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
+export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
+  accessToken,
+  targetFolder,
+  onRequestDriveAuth,
+}) => {
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [comment, setComment] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -25,7 +36,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
   const [lastUploadedName, setLastUploadedName] = useState('');
-  const [driveViewLink, setDriveViewLink] = useState<string | null>(null);
+  const [uploadedDriveFile, setUploadedDriveFile] = useState<DriveFile | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -94,10 +105,18 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
     );
   };
 
+  // Determine correct API endpoint (routes to live Cloud Run backend if running on GitHub Pages)
+  const getUploadUrl = () => {
+    if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
+      return 'https://ais-pre-aenjyhkv3ljqkrlarib5yu-424311887351.europe-west3.run.app/api/student/upload';
+    }
+    return '/api/student/upload';
+  };
+
   const handleSubmit = async () => {
     // Check password
     if (password.trim() !== '1011') {
-      setErrorMessage('Неверный пароль. Для отправки введите пароль: 1011');
+      setErrorMessage('Неверный пароль доступа');
       return;
     }
 
@@ -110,14 +129,53 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
     setIsUploading(true);
     setUploadProgress(10);
 
+    // If Google Drive token is not yet connected on the client and request auth handler is available:
+    let currentToken = accessToken;
+    if (!currentToken && onRequestDriveAuth) {
+      try {
+        currentToken = await onRequestDriveAuth();
+      } catch (authErr) {
+        console.warn('Drive auth skipped or dismissed:', authErr);
+      }
+    }
+
+    // If client has active Google Drive access token and target folder, upload directly to Google Drive!
+    if (currentToken && targetFolder) {
+      try {
+        const driveResult = await uploadPresentation(
+          currentToken,
+          selectedFile,
+          targetFolder.id,
+          {
+            senderName: comment.trim() || undefined,
+            comment: comment.trim() || undefined,
+          },
+          (percent) => {
+            setUploadProgress(percent);
+          }
+        );
+
+        setUploadedDriveFile(driveResult);
+        setLastUploadedName(selectedFile.name);
+        setIsSuccess(true);
+        setIsUploading(false);
+        triggerConfetti();
+        return;
+      } catch (directDriveErr: any) {
+        console.warn('Direct client drive upload failed, falling back to server:', directDriveErr);
+      }
+    }
+
+    // Fallback or standard flow: Send to backend server
     const formData = new FormData();
     formData.append('password', password.trim());
     formData.append('comment', comment.trim());
     formData.append('file', selectedFile);
 
     try {
+      const uploadUrl = getUploadUrl();
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/student/upload');
+      xhr.open('POST', uploadUrl);
 
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
@@ -133,17 +191,29 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
             const data = JSON.parse(xhr.responseText);
             if (data.success) {
               setLastUploadedName(selectedFile.name);
-              setDriveViewLink(data.submission?.driveViewLink || null);
+              if (data.submission?.driveViewLink) {
+                setUploadedDriveFile({
+                  id: data.submission.driveFileId || '',
+                  name: data.submission.originalName,
+                  mimeType: selectedFile.type,
+                  createdTime: data.submission.uploadedAt,
+                  webViewLink: data.submission.driveViewLink,
+                });
+              }
               setIsSuccess(true);
               triggerConfetti();
             } else {
               setErrorMessage(data.error || 'Ошибка при отправке');
             }
           } catch {
-            setIsSuccess(true);
+            setErrorMessage('Ошибка ответа сервера');
           }
         } else if (xhr.status === 403) {
-          setErrorMessage('Неверный пароль доступа. Введите пароль: 1011');
+          setErrorMessage('Неверный пароль доступа');
+        } else if (xhr.status === 404) {
+          setErrorMessage(
+            'Бэкенд-сервер недоступен. Проверьте соединение с сервером.'
+          );
         } else {
           try {
             const err = JSON.parse(xhr.responseText);
@@ -156,7 +226,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
 
       xhr.onerror = () => {
         setIsUploading(false);
-        setErrorMessage('Сетевая ошибка. Проверьте интернет-соединение.');
+        setErrorMessage('Сетевая ошибка при отправке файла');
       };
 
       xhr.send(formData);
@@ -171,7 +241,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
     setIsSuccess(false);
     setUploadProgress(0);
     setErrorMessage(null);
-    setDriveViewLink(null);
+    setUploadedDriveFile(null);
   };
 
   return (
@@ -203,7 +273,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
               Презентация успешно отправлена!
             </h3>
             <p className="text-slate-600 text-sm max-w-md mx-auto mb-6">
-              Файл сохранён и загружается на Google Диск в папку «Презентации».
+              Файл получен и сохранён в папку «Презентации» на Google Диске.
             </p>
 
             <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-200/70 text-left max-w-md mx-auto flex items-center justify-between gap-3">
@@ -217,9 +287,9 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
                 </div>
               </div>
 
-              {driveViewLink && (
+              {uploadedDriveFile?.webViewLink && (
                 <a
-                  href={driveViewLink}
+                  href={uploadedDriveFile.webViewLink}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline shrink-0 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200"
@@ -229,6 +299,21 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
                 </a>
               )}
             </div>
+
+            {targetFolder?.webViewLink && (
+              <div className="mb-6">
+                <a
+                  href={targetFolder.webViewLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:underline"
+                >
+                  <Folder className="w-3.5 h-3.5" />
+                  <span>Открыть папку «{targetFolder.name}» в Google Диске</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
 
             <button
               onClick={handleReset}
@@ -247,22 +332,32 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
               </h1>
             </div>
 
-            {/* Password Field */}
+            {/* Password Field - Clean, password hidden */}
             <div className="mb-5">
               <label className="block text-xs font-semibold text-slate-900 mb-1.5 flex items-center gap-1">
                 <Lock className="w-3.5 h-3.5 text-blue-600" />
                 <span>Пароль доступа <span className="text-red-500">*</span></span>
               </label>
-              <input
-                type="text"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  if (errorMessage) setErrorMessage(null);
-                }}
-                placeholder="Введите пароль (1011)"
-                className="w-full text-sm px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white transition"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (errorMessage) setErrorMessage(null);
+                  }}
+                  placeholder="Введите пароль"
+                  className="w-full text-sm px-3.5 py-2.5 pr-10 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                  title={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             {/* File Label */}
@@ -337,7 +432,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
                 type="text"
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="Например: Иванов Иван, 10А"
+                placeholder="Имя, класс или тема презентации"
                 className="w-full text-xs px-3.5 py-2.5 bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white transition"
               />
             </div>
@@ -380,9 +475,9 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={isUploading || !selectedFile || password.trim() !== '1011'}
+                disabled={isUploading || !selectedFile}
                 className={`inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl font-medium text-sm text-white transition-all shadow-sm ${
-                  isUploading || !selectedFile || password.trim() !== '1011'
+                  isUploading || !selectedFile
                     ? 'bg-blue-400 cursor-not-allowed opacity-80'
                     : 'bg-[#0070f3] hover:bg-blue-600 active:scale-[0.98]'
                 }`}

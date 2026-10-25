@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
+import cors from 'cors';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -162,6 +163,7 @@ async function uploadFileToGoogleDrive(
   return (await res.json()) as { id: string; name: string; webViewLink?: string };
 }
 
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 // API Routes
