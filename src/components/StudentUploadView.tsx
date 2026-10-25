@@ -7,24 +7,20 @@ import {
   AlertCircle,
   Loader2,
   Lock,
-  ExternalLink,
   Eye,
   EyeOff,
-  Folder,
+  FolderOpen,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { DriveFolder, DriveFile, uploadPresentation } from '../services/drive';
 
 interface StudentUploadViewProps {
-  accessToken: string | null;
-  targetFolder: DriveFolder | null;
-  onRequestDriveAuth?: () => Promise<string | null>;
+  onGoToGallery?: () => void;
+  apiBaseUrl?: string;
 }
 
 export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
-  accessToken,
-  targetFolder,
-  onRequestDriveAuth,
+  onGoToGallery,
+  apiBaseUrl = '',
 }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -36,7 +32,6 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
   const [lastUploadedName, setLastUploadedName] = useState('');
-  const [uploadedDriveFile, setUploadedDriveFile] = useState<DriveFile | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -105,16 +100,17 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
     );
   };
 
-  // Determine correct API endpoint (routes to live Cloud Run backend if running on GitHub Pages)
   const getUploadUrl = () => {
-    if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
-      return 'https://ais-pre-aenjyhkv3ljqkrlarib5yu-424311887351.europe-west3.run.app/api/student/upload';
+    if (apiBaseUrl) {
+      return `${apiBaseUrl}/api/upload`;
     }
-    return '/api/student/upload';
+    if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
+      return 'https://ais-pre-aenjyhkv3ljqkrlarib5yu-424311887351.europe-west3.run.app/api/upload';
+    }
+    return '/api/upload';
   };
 
   const handleSubmit = async () => {
-    // Check password
     if (password.trim() !== '1011') {
       setErrorMessage('Неверный пароль доступа');
       return;
@@ -129,44 +125,6 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
     setIsUploading(true);
     setUploadProgress(10);
 
-    // If Google Drive token is not yet connected on the client and request auth handler is available:
-    let currentToken = accessToken;
-    if (!currentToken && onRequestDriveAuth) {
-      try {
-        currentToken = await onRequestDriveAuth();
-      } catch (authErr) {
-        console.warn('Drive auth skipped or dismissed:', authErr);
-      }
-    }
-
-    // If client has active Google Drive access token and target folder, upload directly to Google Drive!
-    if (currentToken && targetFolder) {
-      try {
-        const driveResult = await uploadPresentation(
-          currentToken,
-          selectedFile,
-          targetFolder.id,
-          {
-            senderName: comment.trim() || undefined,
-            comment: comment.trim() || undefined,
-          },
-          (percent) => {
-            setUploadProgress(percent);
-          }
-        );
-
-        setUploadedDriveFile(driveResult);
-        setLastUploadedName(selectedFile.name);
-        setIsSuccess(true);
-        setIsUploading(false);
-        triggerConfetti();
-        return;
-      } catch (directDriveErr: any) {
-        console.warn('Direct client drive upload failed, falling back to server:', directDriveErr);
-      }
-    }
-
-    // Fallback or standard flow: Send to backend server
     const formData = new FormData();
     formData.append('password', password.trim());
     formData.append('comment', comment.trim());
@@ -191,15 +149,6 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
             const data = JSON.parse(xhr.responseText);
             if (data.success) {
               setLastUploadedName(selectedFile.name);
-              if (data.submission?.driveViewLink) {
-                setUploadedDriveFile({
-                  id: data.submission.driveFileId || '',
-                  name: data.submission.originalName,
-                  mimeType: selectedFile.type,
-                  createdTime: data.submission.uploadedAt,
-                  webViewLink: data.submission.driveViewLink,
-                });
-              }
               setIsSuccess(true);
               triggerConfetti();
             } else {
@@ -210,10 +159,6 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
           }
         } else if (xhr.status === 403) {
           setErrorMessage('Неверный пароль доступа');
-        } else if (xhr.status === 404) {
-          setErrorMessage(
-            'Бэкенд-сервер недоступен. Проверьте соединение с сервером.'
-          );
         } else {
           try {
             const err = JSON.parse(xhr.responseText);
@@ -241,7 +186,6 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
     setIsSuccess(false);
     setUploadProgress(0);
     setErrorMessage(null);
-    setUploadedDriveFile(null);
   };
 
   return (
@@ -273,54 +217,37 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
               Презентация успешно отправлена!
             </h3>
             <p className="text-slate-600 text-sm max-w-md mx-auto mb-6">
-              Файл получен и сохранён в папку «Презентации» на Google Диске.
+              Файл сохранён в базе данных и готов к просмотру и скачиванию.
             </p>
 
-            <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-200/70 text-left max-w-md mx-auto flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <FileText className="w-6 h-6 text-blue-600 shrink-0" />
-                <div className="truncate">
-                  <p className="text-xs font-semibold text-slate-900 truncate">
-                    {lastUploadedName}
-                  </p>
-                  <p className="text-[11px] text-emerald-600 font-medium">✓ Отправлено на Google Диск</p>
-                </div>
+            <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-200/70 text-left max-w-md mx-auto flex items-center gap-3">
+              <FileText className="w-6 h-6 text-blue-600 shrink-0" />
+              <div className="truncate">
+                <p className="text-xs font-semibold text-slate-900 truncate">
+                  {lastUploadedName}
+                </p>
+                <p className="text-[11px] text-emerald-600 font-medium">✓ Сохранено в базе данных</p>
               </div>
-
-              {uploadedDriveFile?.webViewLink && (
-                <a
-                  href={uploadedDriveFile.webViewLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline shrink-0 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200"
-                >
-                  <span>Открыть</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
             </div>
 
-            {targetFolder?.webViewLink && (
-              <div className="mb-6">
-                <a
-                  href={targetFolder.webViewLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:underline"
-                >
-                  <Folder className="w-3.5 h-3.5" />
-                  <span>Открыть папку «{targetFolder.name}» в Google Диске</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-            )}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <button
+                onClick={handleReset}
+                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-[#0070f3] hover:bg-blue-600 text-white font-medium text-sm shadow-sm transition"
+              >
+                Отправить ещё одну
+              </button>
 
-            <button
-              onClick={handleReset}
-              className="inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl bg-[#0070f3] hover:bg-blue-600 text-white font-medium text-sm shadow-sm transition"
-            >
-              Отправить ещё одну презентацию
-            </button>
+              {onGoToGallery && (
+                <button
+                  onClick={onGoToGallery}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm transition"
+                >
+                  <FolderOpen className="w-4 h-4 text-blue-600" />
+                  <span>Посмотреть загруженные файлы</span>
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           /* FORM MATCHING USER PHOTO */
@@ -332,7 +259,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
               </h1>
             </div>
 
-            {/* Password Field - Clean, password hidden */}
+            {/* Password Field */}
             <div className="mb-5">
               <label className="block text-xs font-semibold text-slate-900 mb-1.5 flex items-center gap-1">
                 <Lock className="w-3.5 h-3.5 text-blue-600" />
@@ -457,7 +384,7 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
                 <div className="flex items-center justify-between text-xs font-medium text-slate-700">
                   <span className="flex items-center gap-1.5">
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                    Загрузка на Google Диск...
+                    Сохранение файла...
                   </span>
                   <span>{uploadProgress}%</span>
                 </div>
@@ -475,9 +402,9 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = ({
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={isUploading || !selectedFile}
+                disabled={isUploading || !selectedFile || password.trim() !== '1011'}
                 className={`inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl font-medium text-sm text-white transition-all shadow-sm ${
-                  isUploading || !selectedFile
+                  isUploading || !selectedFile || password.trim() !== '1011'
                     ? 'bg-blue-400 cursor-not-allowed opacity-80'
                     : 'bg-[#0070f3] hover:bg-blue-600 active:scale-[0.98]'
                 }`}
