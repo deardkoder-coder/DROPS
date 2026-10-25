@@ -142,6 +142,10 @@ export const StudentUploadView: React.FC<StudentUploadViewProps> = () => {
           } catch {
             setIsSuccess(true);
           }
+        } else if (xhr.status === 404) {
+          setErrorMessage(
+            'Бэкенд-сервер недоступен (GitHub Pages поддерживает только статические файлы). Для работы приёма презентаций без регистрации запустите сервис с сервером Node.js или используйте облачный хостинг.'
+          );
         } else {
           try {
             const err = JSON.parse(xhr.responseText);
